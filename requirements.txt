@@ -1,0 +1,10 @@
+transformers
+datasets
+torch
+torchvision
+torchaudio
+huggingface_hub
+accelerate
+numpy
+grokfast_pytorch
+matplotlib
