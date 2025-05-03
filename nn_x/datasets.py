@@ -1,90 +1,53 @@
+from typing import Dict, List, Iterator, TypeVar
+from glob import glob
+import os
 
-from typing import Dict, List
-
-from datasets import load_dataset, Dataset
+from tqdm.auto import tqdm
 
 from .embedding import NOMIC_EMBEDDING_MAX_WINDOW_SIZE, nomic_embedding_tokenizer
 
-# # For Clustering:
-# # 1. 20 Newsgroups Dataset:
-# #    - Contains newsgroup documents across different topics.
-# #    - Good for exploring text clustering based on topic similarity.
-# dataset_config = ('newsgroup', '18828_alt.atheism')
-# # 2. AG News Dataset:
-# #    - Contains news articles categorized into 4 classes (World, Sports, Business, Sci/Tech).
-# #    - Useful for text classification, but clustering can also be attempted based on news topics.
-# #dataset_config = ('ag_news')
-# # For Classification:
-# # 1. IMDB Movie Reviews:
-# #    - Contains movie reviews labeled as positive or negative.
-# #    - Classic dataset for sentiment analysis and binary classification.
-# #dataset_config = ('imdb')
-# # 2. SMS Spam Collection:
-# #    - Contains SMS messages labeled as spam or ham (not spam).
-# #    - Useful for spam detection and binary text classification.
-# #dataset_config = ('sms_spam')
-#
-# dataset = load_dataset(*dataset_config)
-#
-# sentences = [("classification: " + example) for example in dataset['train']['text'][:100]] # ignore: reportGeneralTypeIssues
-#
-# for line in sentences:
-#     ids = nomic_embedding_tokenizer(line, padding=True, truncation=False).input_ids
-#     idl = len(ids)
-#     if idl > NOMIC_EMBEDDING_MAX_WINDOW_SIZE:
-#         print(line)
-#         print(idl)
-#         raise Exception(f"oof: line is longer than context window! {idl} > {EMBEDDING_MAX_WINDOW_SIZE} in {line}")
+T = TypeVar('T')
 
-def load_winowed_dataset(dataset_name: str, split: str = "train", tokenizer: callable = lambda x: nomic_embedding_tokenizer(x, padding=True, truncation=False), window_size: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE, stride: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 3, reverse: bool = False, text_key: str = "text") -> Dataset:
-    """
-    Load a dataset and apply the DocumentWindowPipeline to it.
-    """
-    ds = load_dataset(dataset_name, split=split)
-    pipeline = DocumentWindowPipeline(tokenizer, window_size, stride, reverse, text_key)
-    return pipeline.apply(ds)
+def dataset_from_txt_dir(directory: os.PathLike = "") -> List[str]:
+    data = []
+    for file in tqdm(list(glob(os.path.join(directory, "*.txt"))), desc="Loading files"):
+        with open(file, "r", encoding="utf-8") as f:
+            data.append(f.read())
+    return data
 
-class DocumentWindowPipeline:
-    "A pipeline to chunk documents into windows of tokens for embedding."
-    def __init__(self, tokenizer: callable, window_size: int, stride: int, reverse: bool = False, text_key: str = "text"):
-        """
-        tokenizer: any callable that maps {"text": str} → {"input_ids": List[int], ...}
-        window_size: length of each chunk
-        stride: hop size between chunks
-        reverse: if True, reverse token order before windowing
-        text_key: name of the raw text field in your dataset
-        """
-        self.tokenizer = tokenizer
-        self.window_size = window_size
-        self.stride = stride
-        self.reverse = reverse
-        self.text_key = text_key
+def tokenize_dataset(dataset: List[str]) -> List[List[int]]:
+    return [nomic_embedding_tokenizer(item, padding=True, truncation=False)["input_ids"] for item in dataset]
 
-    def _tokenize(self, example: Dict) -> Dict:
-        tokens = self.tokenizer(example[self.text_key],
-                                 truncation=False)["input_ids"]
-        if self.reverse:
-            tokens = list(reversed(tokens))
-        return {"input_ids": tokens}
+def reverse_dataset(dataset: List[T]) -> List[T]:
+    return list(list(reversed(tokens)) for tokens in dataset)
 
-    def _window(self, example: Dict) -> Dict[str, List]:
-        tokens: List[int] = example["input_ids"]
-        windows = []
-        for start in range(0, max(1, len(tokens) - self.window_size + 1), self.stride):
-            chunk = tokens[start : start + self.window_size]
-            # if you want to pad shorter final windows, you could do it here
-            windows.append(chunk)
-        return {"input_ids": windows}
+def windows(items: List[List[T]], window_size: int, stride: int) -> Iterator[T]:
+    for start in range(0, max(1, len(items) - window_size + 1), stride):
+        yield items[start : start + window_size]
 
-    def apply(self, ds: Dataset) -> Dataset:
-        # 1) tokenize (and reverse if flagged)
-        ds_tok = ds.map(self._tokenize,
-                        batched=False,
-                        remove_columns=[self.text_key])
 
-        # 2) turn each doc→many windows, flatten into new rows
-        ds_win = ds_tok.flat_map(self._window)
+def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 7, stride: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 14, word_seps: set = {' ', '\n'}) -> Iterator[List[T]]:
+    n = len(items)
+    nominal_start = 0
 
-        # 3) (optional) set torch format for DataLoader
-        ds_final = ds_win.set_format("torch", columns=["input_ids"])
-        return ds_final
+    while nominal_start < n:
+        start = nominal_start
+        if start > 0 and items[start] not in word_seps:
+            while start > 0 and items[start] not in word_seps:
+                start -= 1
+            if items[start] in word_seps:
+                start += 1
+
+        end = min(start + window_size, n)
+        if end < n and items[end] not in word_seps:
+            while end < n and items[end] not in word_seps:
+                end += 1
+
+        if (end - start) > 2 * window_size:
+            print(f"Warning: Text is too long, you may want to increase the window size. {end - start} > {2 * window_size}")
+            print(f"Start: {start}, End: {end}, Window Size: {window_size}")
+            print(f"Text: {items[start:end]}")
+
+        yield items[start:end]
+
+        nominal_start += stride

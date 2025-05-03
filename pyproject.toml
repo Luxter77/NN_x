@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nn_x"
+version = "0.1.0a"
+authors = [{ name = "Luxter77"}]
+
+[project.urls]
+Homepage = "https://github.com/Luxter77/nn_x"
+
+[tool.setuptools]
+package-dir = {"" = "nn_x"}
+
+[tool.setuptools.packages.find]
+where = ["nn_x"]
+include = ["*"]
+
+[tool.setuptools.package-data]
+"*" = ["*"]
