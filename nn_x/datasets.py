@@ -26,28 +26,28 @@ def windows(items: List[List[T]], window_size: int, stride: int) -> Iterator[T]:
         yield items[start : start + window_size]
 
 
-def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 7, stride: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 14, word_seps: set = {' ', '\n'}) -> Iterator[List[T]]:
+def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 7, stride: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 14, word_seps: set = {' ', '\n'}, max_pull: int = 14, max_push: int = 14) -> Iterator[List[T]]:
     n = len(items)
     nominal_start = 0
 
     while nominal_start < n:
         start = nominal_start
+        pulled = 0
         if start > 0 and items[start] not in word_seps:
-            while start > 0 and items[start] not in word_seps:
+            while start > 0 and items[start] not in word_seps and pulled < max_pull:
                 start -= 1
+                pulled += 1
             if items[start] in word_seps:
                 start += 1
 
         end = min(start + window_size, n)
+        pushed = 0
         if end < n and items[end] not in word_seps:
-            while end < n and items[end] not in word_seps:
+            while end < n and items[end] not in word_seps and pushed < max_push:
                 end += 1
-
-        if (end - start) > 2 * window_size:
-            print(f"Warning: Text is too long, you may want to increase the window size. {end - start} > {2 * window_size}")
-            print(f"Start: {start}, End: {end}, Window Size: {window_size}")
-            print(f"Text: {items[start:end]}")
+                pushed += 1
 
         yield items[start:end]
 
         nominal_start += stride
+
