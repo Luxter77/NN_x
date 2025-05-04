@@ -12,6 +12,3 @@ Homepage = "https://github.com/Luxter77/nn_x"
 
 [tool.setuptools]
 packages = ["nn_x"]
-
-[tool.setuptools.package-data]
-"*" = ["*"]
