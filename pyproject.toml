@@ -10,12 +10,9 @@ authors = [{ name = "Luxter77"}]
 [project.urls]
 Homepage = "https://github.com/Luxter77/nn_x"
 
-[tool.setuptools]
-package-dir = {"" = "nn_x"}
-
 [tool.setuptools.packages.find]
-where = ["nn_x"]
-include = ["*"]
+where = ["."]
+include = ["nn_x"]
 
 [tool.setuptools.package-data]
 "*" = ["*"]
