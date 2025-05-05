@@ -9,10 +9,10 @@ from .embedding import NOMIC_EMBEDDING_MAX_WINDOW_SIZE, nomic_embedding_tokenize
 T = TypeVar('T')
 
 def dataset_from_txt_dir(directory: os.PathLike = "") -> List[str]:
-    data = []
+    data = dict()
     for file in tqdm(list(glob(os.path.join(directory, "*.txt"))), desc="Loading files"):
         with open(file, "r", encoding="utf-8") as f:
-            data.append(f.read())
+            data[file.split(os.sep)[-1].replace('.txt', '')](f.read())
     return data
 
 def tokenize_dataset(dataset: List[str]) -> List[List[int]]:
