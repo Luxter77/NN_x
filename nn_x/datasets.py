@@ -1,4 +1,4 @@
-from typing import Dict, List, Iterator, TypeVar
+from typing import Any, Dict, List, Tuple, Iterator, TypeVar
 from collections import defaultdict
 from glob import glob
 import os
@@ -52,3 +52,35 @@ def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_
 
         nominal_start += stride
 
+def bucket_sentences_by_length_kmeans(sentences_input: list[str], max_len_filter: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 3,
+                                      k_clusters: int = 10, random_state: int = 42) -> dict[int, list[str]]:
+    "What title says"
+
+    items = [s for s in sentences_input if 0 < len(s) < max_len_filter]
+
+    if not items: return {}
+
+    lengths = np.array([len(item) for item in items])
+
+    n_samples, n_unique_lengths = len(items), len(np.unique(lengths))
+    
+    kmeans = KMeans(
+        n_clusters=max(min(k_clusters, n_samples, n_unique_lengths), 1),
+        random_state=random_state,
+        n_init='auto',
+    )
+
+    kmeans.fit(lengths.reshape(-1, 1))
+    
+    k_by_label, m_len_by_label = defaultdict(list), defaultdict(int)
+    for item, length, label in zip(items, lengths, kmeans.labels_):
+        k_by_label[label].append(item)
+        if length > m_len_by_label[label]:
+            m_len_by_label[label] = length
+    
+    output_buckets = defaultdict(list)
+    for label_id in k_by_label:
+        max_len_key = int(m_len_by_label[label_id])
+        output_buckets[max_len_key].extend(k_by_label[label_id])
+    
+    return dict(output_buckets)
