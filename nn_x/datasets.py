@@ -4,6 +4,8 @@ from glob import glob
 import os
 
 from tqdm.auto import tqdm
+import numpy as np
+from sklearn.cluster import KMeans
 
 from .embedding import NOMIC_EMBEDDING_MAX_WINDOW_SIZE, nomic_embedding_tokenizer
 
