@@ -54,35 +54,43 @@ def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_
 
         nominal_start += stride
 
-def bucket_sentences_by_length_kmeans(sentences_input: list[str], max_len_filter: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 3,
-                                      k_clusters: int = 10, random_state: int = 42) -> dict[int, list[str]]:
-    "What title says"
+def bucket_items_by_length_kmeans(items_input: Dict[str, str], max_len_filter: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 3,
+                                  k_clusters: int = 10, random_state: int = 42) -> Dict[int, List[str]]:
+    """
+    Group item IDs by KMeans clusters over the lengths of their associated values.
 
-    items = [s for s in sentences_input if 0 < len(s) < max_len_filter]
+    Args:
+        items_input: Mapping from item IDs to their string values.
+        max_len_filter: Maximum length (exclusive) to include in clustering.
+        k_clusters: Desired number of clusters.
+        random_state: Seed for KMeans initialization.
 
-    if not items: return {}
-
-    lengths = np.array([len(item) for item in items])
-
-    n_samples, n_unique_lengths = len(items), len(np.unique(lengths))
+    Returns:
+        A dict mapping each cluster's maximum value length to the list of item IDs in that cluster.
+    """
+    # Filter out items with non-positive or too-long values
+    valid = [(item_id, val) for item_id, val in items_input.items() if 0 < len(val) < max_len_filter]
     
-    kmeans = KMeans(
-        n_clusters=max(min(k_clusters, n_samples, n_unique_lengths), 1),
-        random_state=random_state,
-        n_init='auto',
-    )
+    if not valid: return {}
 
+    ids, values     = zip(*valid)
+    lengths         = np.array([len(v) for v in values])
+    n, unique_count = len(lengths), len(np.unique(lengths))
+
+    n_clusters = max(min(k_clusters, n, unique_count), 1)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init='auto')
     kmeans.fit(lengths.reshape(-1, 1))
+
+    cluster_to_ids  = defaultdict(list)
+    cluster_max_len = defaultdict(int)
+    for item_id, length, label in zip(ids, lengths, kmeans.labels_):
+        cluster_to_ids[label].append(item_id)
+        if length > cluster_max_len[label]:
+            cluster_max_len[label] = length
     
-    k_by_label, m_len_by_label = defaultdict(list), defaultdict(int)
-    for item, length, label in zip(items, lengths, kmeans.labels_):
-        k_by_label[label].append(item)
-        if length > m_len_by_label[label]:
-            m_len_by_label[label] = length
-    
-    output_buckets = defaultdict(list)
-    for label_id in k_by_label:
-        max_len_key = int(m_len_by_label[label_id])
-        output_buckets[max_len_key].extend(k_by_label[label_id])
-    
-    return dict(output_buckets)
+    output: Dict[int, List[str]] = {}
+    for label, id_list in cluster_to_ids.items():
+        max_len = int(cluster_max_len[label])
+        output.setdefault(max_len, []).extend(id_list)
+
+    return output
