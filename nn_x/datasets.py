@@ -69,7 +69,7 @@ def bucket_items_by_length_kmeans(items_input: Dict[str, str], max_len_filter: i
         A dict mapping each cluster's maximum value length to the list of item IDs in that cluster.
     """
     # Filter out items with non-positive or too-long values
-    valid = [(item_id, val) for item_id, val in items_input.items() if 0 < len(val) < max_len_filter]
+    valid = [(item_id, val) for item_id, val in items_input.items() if 0 < len(val) <= max_len_filter]
     
     if not valid: return {}
 
