@@ -121,7 +121,7 @@ def produce_clustered_batches(sentences: dict[str, str], MAX_BATCH = 200, max_ac
 
     batches: list[tuple[list[str], list[str]]] = []
 
-    clustered_sentences = bucket_items_by_length_kmeans(sentences, max_acceptable_length, 30, 2)
+    clustered_sentences = bucket_items_by_length_kmeans(sentences, 30, 2)
 
     total_pbar = tqdm(enumerate(clustered_sentences.items()), total=len(clustered_sentences), desc="encoding sentences by clusters, loading buffer.")
 
