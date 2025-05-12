@@ -133,16 +133,17 @@ def produce_clustered_batches(sentences: dict[str, str], MAX_BATCH = 200, max_ac
                 buffer_names.append(name)
 
                 if (len(buffer_texts) >= MAX_BATCH) or (cluster * len(buffer_texts) > (max_acceptable_length * MAX_BATCH)):
-                    batches.append((buffer_texts, buffer_names))
+                    batches.append((buffer_names, buffer_texts))
                     buffer_texts = []
                     buffer_names = []
 
     if buffer_texts:
-        batches.append((buffer_texts, buffer_names))
+        batches.append((buffer_names, buffer_texts))
 
     return batches
 
-def parallel_batched_consumer(batches: List[Tuple[List[str], List[str]]], sentence_embeddings: defaultdict[str, List[str]], max_workers: int = os.cpu_count()):
+def parallel_batched_consumer(batches: List[Tuple[List[str], List[str]]], max_workers: int = os.cpu_count()):
+    sentence_embeddings: defaultdict[str, List[str]] = defaultdict(list)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         wrapped = (lambda args: process_buffer(args[0], args[1], sentence_embeddings))
         jobs    = executor.map(wrapped, batches)
