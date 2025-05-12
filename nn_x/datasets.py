@@ -9,9 +9,8 @@ from sklearn.cluster import KMeans
 from tqdm import trange
 from tqdm.auto import tqdm
 import numpy as np
-import torch
 
-from .embedding import NOMIC_EMBEDDING_MAX_WINDOW_SIZE, _flush_buffer
+from .embedding import NOMIC_EMBEDDING_MAX_WINDOW_SIZE, process_buffer
 
 DEFAULT_CONFIG = config_parameters = {
     "window_size": NOMIC_EMBEDDING_MAX_WINDOW_SIZE,
@@ -178,4 +177,4 @@ def produce_clustered_batches(sentences: dict[str, str], MAX_BATCH = 200, max_ac
 
 def batched_consumer(batches: List[Tuple[List[str], List[str]]], sentence_embeddings: defaultdict[str, List[str]]):
     for buffer_texts, buffer_names in tqdm(batches, desc="encoding sentences", leave=True, unit="sentences"):
-        _flush_buffer(buffer_names, buffer_texts, sentence_embeddings)
+        process_buffer(buffer_names, buffer_texts, sentence_embeddings)
