@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Tuple, Iterator, TypeVar
 from collections import defaultdict
 from glob import glob
@@ -68,14 +69,12 @@ def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_
 
         nominal_start += stride
 
-def bucket_items_by_length_kmeans(items_input: Dict[str, str], max_len_filter: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 3,
-                                  k_clusters: int = 10, random_state: int = 42) -> Dict[int, List[str]]:
+def bucket_items_by_length_kmeans(items_input: Dict[str, str], k_clusters: int = 10, random_state: int = 42) -> Dict[int, List[str]]:
     """
     Group item IDs by KMeans clusters over the lengths of their associated values.
 
     Args:
         items_input: Mapping from item IDs to their string values.
-        max_len_filter: Maximum length (exclusive) to include in clustering.
         k_clusters: Desired number of clusters.
         random_state: Seed for KMeans initialization.
 
@@ -83,11 +82,7 @@ def bucket_items_by_length_kmeans(items_input: Dict[str, str], max_len_filter: i
         A dict mapping each cluster's maximum value length to the list of item IDs in that cluster.
     """
     # Filter out items with non-positive or too-long values
-    valid = [(item_id, val) for item_id, val in items_input.items() if 0 < len(val) <= max_len_filter]
-    
-    if not valid: return {}
-
-    ids, values     = zip(*valid)
+    ids, values     = zip(*items_input.items())
     lengths         = np.array([len(v) for v in values])
     n, unique_count = len(lengths), len(np.unique(lengths))
 
@@ -120,41 +115,13 @@ def window(string: str, config_parameters: Dict[str, Any] = DEFAULT_CONFIG) -> I
     for window in tqdm(windows_anchor_words(string, window_size=config_parameters["window_size"], stride=config_parameters["stride"]), total=total, desc="Windowing", leave=False, unit=" windows"):
         yield config_parameters["prefix"] + window
 
-def produce_linear_batches(sentences: dict[str, str], MAX_BATCH = 200, max_acceptable_lenght = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 3):
+def produce_clustered_batches(sentences: dict[str, str], MAX_BATCH = 200, max_acceptable_length = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 3):
     buffer_texts: list[str] = []
     buffer_names: list[str] = []
 
     batches: list[tuple[list[str], list[str]]] = []
 
-    long_sentences = [(name, text) for name, text in sentences.items() if len(text) > max_acceptable_lenght]
-
-    # Progress bar over all sentences
-    total_pbar = tqdm(long_sentences, total=len(long_sentences), desc="encoding sentences")
-
-    for name, text in total_pbar:
-        total_pbar.set_postfix_str(f"processing: {name}")
-        max_sent_len = 0
-        for sent in window(string=text):
-            max_sent_len = max(max_sent_len, len(sent))
-            buffer_texts.append(sent)
-            buffer_names.append(name)
-
-            if ( max_sent_len * len(buffer_texts) > (max_acceptable_lenght * MAX_BATCH)):
-                batches.append((buffer_texts, buffer_names))
-                buffer_texts, buffer_names = [], []
-
-    if buffer_texts:
-        batches.append((buffer_texts, buffer_names))
-
-    return batches
-
-def produce_clustered_batches(sentences: dict[str, str], MAX_BATCH = 200, max_acceptable_lenght = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 3):
-    buffer_texts: list[str] = []
-    buffer_names: list[str] = []
-
-    batches: list[tuple[list[str], list[str]]] = []
-
-    clustered_sentences = bucket_items_by_length_kmeans(sentences, max_acceptable_lenght, 30, 2)
+    clustered_sentences = bucket_items_by_length_kmeans(sentences, max_acceptable_length, 30, 2)
 
     total_pbar = tqdm(enumerate(clustered_sentences.items()), total=len(clustered_sentences), desc="encoding sentences by clusters, loading buffer.")
 
@@ -165,7 +132,7 @@ def produce_clustered_batches(sentences: dict[str, str], MAX_BATCH = 200, max_ac
                 buffer_texts.append(sent)
                 buffer_names.append(name)
 
-                if (len(buffer_texts) >= MAX_BATCH) or (cluster * len(buffer_texts) > (max_acceptable_lenght * MAX_BATCH)):
+                if (len(buffer_texts) >= MAX_BATCH) or (cluster * len(buffer_texts) > (max_acceptable_length * MAX_BATCH)):
                     batches.append((buffer_texts, buffer_names))
                     buffer_texts = []
                     buffer_names = []
@@ -175,6 +142,8 @@ def produce_clustered_batches(sentences: dict[str, str], MAX_BATCH = 200, max_ac
 
     return batches
 
-def batched_consumer(batches: List[Tuple[List[str], List[str]]], sentence_embeddings: defaultdict[str, List[str]]):
-    for buffer_texts, buffer_names in tqdm(batches, desc="encoding sentences", leave=True, unit="sentences"):
-        process_buffer(buffer_names, buffer_texts, sentence_embeddings)
+def parallel_batched_consumer(batches: List[Tuple[List[str], List[str]]], sentence_embeddings: defaultdict[str, List[str]], max_workers: int = os.cpu_count()):
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        wrapped = (lambda args: process_buffer(args[0], args[1], sentence_embeddings))
+        jobs    = executor.map(wrapped, batches)
+        list(tqdm(jobs, total=len(batches), desc="encoding sentences", unit="batches", leave=True))
