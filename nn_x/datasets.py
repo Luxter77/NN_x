@@ -6,11 +6,12 @@ import datetime as dt
 import os
 
 from sklearn.cluster import KMeans
+from tqdm import trange
 from tqdm.auto import tqdm
 import numpy as np
 import torch
 
-from .embedding import NOMIC_EMBEDDING_MAX_WINDOW_SIZE, nomic_embedding_tokenizer, do_cuda, device
+from .embedding import NOMIC_EMBEDDING_MAX_WINDOW_SIZE, _flush_buffer
 
 DEFAULT_CONFIG = config_parameters = {
     "window_size": NOMIC_EMBEDDING_MAX_WINDOW_SIZE,
@@ -34,9 +35,6 @@ def dataset_from_txt_dir(directory: os.PathLike = "", search=".txt", recursive=T
             # else:
                 # tqdm.write(f"File {file} is empty?")
     return dict(data)
-
-def tokenize_dataset(dataset: List[str]) -> List[List[int]]:
-    return [nomic_embedding_tokenizer(item, padding=True, truncation=False)["input_ids"] for item in dataset]
 
 def reverse_dataset(dataset: List[T]) -> List[T]:
     return list(list(reversed(tokens)) for tokens in dataset)
@@ -123,28 +121,6 @@ def window(string: str, config_parameters: Dict[str, Any] = DEFAULT_CONFIG) -> I
     for window in tqdm(windows_anchor_words(string, window_size=config_parameters["window_size"], stride=config_parameters["stride"]), total=total, desc="Windowing", leave=False, unit=" windows"):
         yield config_parameters["prefix"] + window
 
-def _flush_buffer(buffer_names, buffer_texts, sentence_embeddings):
-    def _do():
-        with torch.no_grad():
-            t = nomic_embedding_tokenizer(buffer_texts, padding=True, truncation=True, return_tensors="pt", max_length=NOMIC_EMBEDDING_MAX_WINDOW_SIZE).to(device)
-
-            try:
-                x = nomic_embedding_model(**t)
-                x = mean_pooling(x, t["attention_mask"])
-                x = F.normalize(x, p=2, dim=1)
-            except torch.cuda.OutOfMemoryError as oom:
-                tqdm.write(f"Out of memory error: {oom}")
-                tqdm.write(f"Out of memory error: " + str(t['input_ids'].shape))
-                raise oom
-
-            x = x.detach().cpu()
-
-            for n, e in zip(buffer_names, x):
-                sentence_embeddings[n].append(e)
-    _do()
-    buffer_texts.clear()
-    buffer_names.clear()
-
 def produce_linear_batches(sentences: dict[str, str], MAX_BATCH = 200, max_acceptable_lenght = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 3):
     buffer_texts: list[str] = []
     buffer_names: list[str] = []
@@ -166,8 +142,7 @@ def produce_linear_batches(sentences: dict[str, str], MAX_BATCH = 200, max_accep
 
             if ( max_sent_len * len(buffer_texts) > (max_acceptable_lenght * MAX_BATCH)):
                 batches.append((buffer_texts, buffer_names))
-                buffer_texts = []
-                buffer_names = []
+                buffer_texts, buffer_names = [], []
 
     if buffer_texts:
         batches.append((buffer_texts, buffer_names))
@@ -204,8 +179,3 @@ def produce_clustered_batches(sentences: dict[str, str], MAX_BATCH = 200, max_ac
 def batched_consumer(batches: List[Tuple[List[str], List[str]]], sentence_embeddings: defaultdict[str, List[str]]):
     for buffer_texts, buffer_names in tqdm(batches, desc="encoding sentences", leave=True, unit="sentences"):
         _flush_buffer(buffer_names, buffer_texts, sentence_embeddings)
-        gc.collect()
-        if do_cuda:
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
-            torch._C._cuda_clearCublasWorkspaces()

@@ -1,5 +1,11 @@
+import gc
+
 from transformers import AutoTokenizer, AutoModel
+from tqdm import tqdm
 import torch
+import torch.nn.functional as F
+
+from nn_x.extra import mean_pooling
 
 NOMIC_EMBEDDING_MAX_WINDOW_SIZE = 8192
 
@@ -38,3 +44,31 @@ def estimate_char_count(tokens: int) -> int:
 def estimate_token_count_from_chars(chars: int) -> int:
     "Estimate the number of tokens in a given number of characters."
     return int(chars * NOMIC_CHAR_TO_TOKEN_RATIO)
+
+def _flush_buffer(buffer_names, buffer_texts, sentence_embeddings):
+    def _do():
+        with torch.no_grad():
+            t = nomic_embedding_tokenizer(buffer_texts, padding=True, truncation=True, return_tensors="pt", max_length=NOMIC_EMBEDDING_MAX_WINDOW_SIZE).to(device)
+
+            try:
+                x = nomic_embedding_model(**t)
+                x = mean_pooling(x, t["attention_mask"])
+                x = F.normalize(x, p=2, dim=1)
+            except torch.cuda.OutOfMemoryError as oom:
+                tqdm.write(f"Out of memory error: {oom}")
+                tqdm.write(f"Out of memory error: " + str(t['input_ids'].shape))
+                raise oom
+
+            for n, e in zip(buffer_names, x):
+                sentence_embeddings[n].append(e.detach().cpu())
+    _do()
+
+    buffer_texts.clear()
+    buffer_names.clear()
+    
+    gc.collect()
+
+    if do_cuda:
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        torch._C._cuda_clearCublasWorkspaces()
