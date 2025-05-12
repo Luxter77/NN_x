@@ -148,3 +148,4 @@ def parallel_batched_consumer(batches: List[Tuple[List[str], List[str]]], max_wo
         wrapped = (lambda args: process_buffer(args[0], args[1], sentence_embeddings))
         jobs    = executor.map(wrapped, batches)
         list(tqdm(jobs, total=len(batches), desc="encoding sentences", unit="batches", leave=True))
+    return dict(sentence_embeddings)
