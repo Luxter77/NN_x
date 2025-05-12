@@ -8,10 +8,9 @@ import os
 from sklearn.cluster import KMeans
 from tqdm.auto import tqdm
 import numpy as np
+import torch
 
-from .embedding import NOMIC_EMBEDDING_MAX_WINDOW_SIZE, nomic_embedding_tokenizer
-
-
+from .embedding import NOMIC_EMBEDDING_MAX_WINDOW_SIZE, nomic_embedding_tokenizer, do_cuda, device
 
 DEFAULT_CONFIG = config_parameters = {
     "window_size": NOMIC_EMBEDDING_MAX_WINDOW_SIZE,
