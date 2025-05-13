@@ -144,7 +144,6 @@ class WindowDataset:
     def embed(self):
         for batch in tqdm(self._batches, desc="embedding sentences", unit="batches", leave=True):
             for embedded_content in process_batch(batch.doc_ctnt):
-                # note, this tensor is transposed for zip unbatch
                 batch.doc_ctnt = embedded_content
 
 def batch_window_list(batch: List[WindowItem]) -> BatchedWindowItems:
