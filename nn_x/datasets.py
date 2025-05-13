@@ -1,6 +1,6 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple, Iterator, TypeVar
+from typing import Union, Any, Dict, List, Tuple, Iterator, TypeVar
 from collections import defaultdict
 from glob import glob
 
@@ -58,13 +58,13 @@ def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_
         nominal_start += stride
 
 T_name = str
-T_doc  = str
+T_doc  = Union[T_doc, 'torch.Tensor']
 
 @dataclass
 class WindowItem:
     doc_name: T_name
     part_idx: int
-    doc_ctnt: T_doc | 'torch.Tensor'
+    doc_ctnt: T_doc
     
     @property
     def length(self) -> int:
@@ -74,7 +74,7 @@ class WindowItem:
 class BatchedWindowItems:
     doc_name: List[T_name]
     part_idx: List[int]
-    doc_ctnt: List[T_doc | 'torch.Tensor']
+    doc_ctnt: List[T_doc]
     
     def unbach(self) -> List[WindowItem]:
         return [WindowItem(name, idx, content) for name, idx, content in zip(self.doc_name, self.part_idx, self.doc_ctnt)]
@@ -131,7 +131,7 @@ class WindowDataset:
                 current_batch = [ ]
                 max_lenght    =  1
         
-    def embed_batches(self):
+    def embed(self):
         for batch in tqdm(self._batches, desc="embedding sentences", unit="batches", leave=True):
             for embedded_content in process_batch(batch.doc_ctnt):
                 # note, this tensor is transposed for zip unbatch
