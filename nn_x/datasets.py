@@ -98,15 +98,22 @@ class WindowDataset:
 
     def window(self):
         "process parallelly iterates over documents, and populates self.windows with WindowItems"
-        wrapper: callable[str, List[str]] = (lambda x: list(windows_anchor_words(x, self.window_size, self.stride, self.word_seps, self.max_pull, self.max_push)))
-
         futures: Dict[str, List[str]] = dict()
 
         for doc_name, doc_content in self.documents.items():
-            futures[self.pool.submit(wrapper, doc_content)] = doc_name
+            future = self.pool.submit(
+                windows_anchor_words,
+                doc_content,
+                self.window_size,
+                self.stride,
+                self.word_seps,
+                self.max_pull,
+                self.max_push
+            )
+            futures[future] = doc_name
 
         self._windows.clear()
-        for v_future in as_completed(futures.items()):
+        for v_future in tqdm(as_completed(futures.keys()), total=len(futures), desc="Windowing documents", unit=" docs", leave=True):
             k_doc_name = futures[v_future]
             for i_part_idx, r_doc_ctnt in enumerate(v_future.result()):
                 self._windows.append(WindowItem(k_doc_name, i_part_idx, r_doc_ctnt))
