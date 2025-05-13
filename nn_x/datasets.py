@@ -132,12 +132,12 @@ class WindowDataset:
         max_lenght           = 1
 
         self._batches.clear()
-        for window in self._windows:
+        for window in tqdm(self._windows, desc="batching windows", leave=True, unit=" win"):
             current_batch.append(window)
             max_lenght = max(max_lenght, window.length)
 
             if (len(current_batch) == max_batch) or (max_lenght * len(current_batch) > max_batch_token_area):
-                self._batches.append(current_batch)
+                self._batches.append(batch_window_list(current_batch))
                 current_batch = [ ]
                 max_lenght    =  1
         
