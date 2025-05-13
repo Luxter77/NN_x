@@ -58,7 +58,7 @@ def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_
         nominal_start += stride
 
 T_name = str
-T_doc  = Union[T_doc, 'torch.Tensor']
+T_doc  = Union[str, 'torch.Tensor']
 
 @dataclass
 class WindowItem:
