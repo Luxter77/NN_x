@@ -145,7 +145,9 @@ def produce_clustered_batches(sentences: dict[str, str], MAX_BATCH = 200, max_ac
 def parallel_batched_consumer(batches: List[Tuple[List[str], List[str]]], max_workers: int = os.cpu_count()):
     sentence_embeddings: defaultdict[str, List[str]] = defaultdict(list)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        wrapped = (lambda args: process_buffer(args[0], args[1], sentence_embeddings))
+        wrapped = lambda args: process_buffer(args[0], args[1])
         jobs    = executor.map(wrapped, batches)
-        list(tqdm(jobs, total=len(batches), desc="encoding sentences", unit="batches", leave=True))
+        for batch in tqdm(jobs, total=len(batches), desc="encoding sentences", unit="batches", leave=True)
+            for name, embedding in batch:
+                sentence_embeddings[name].append(embedding)
     return dict(sentence_embeddings)

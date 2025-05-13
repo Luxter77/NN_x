@@ -45,8 +45,10 @@ def estimate_token_count_from_chars(chars: int) -> int:
     "Estimate the number of tokens in a given number of characters."
     return int(chars * NOMIC_CHAR_TO_TOKEN_RATIO)
 
-def process_buffer(buffer_names, buffer_texts, sentence_embeddings):
+def process_buffer(buffer_names, buffer_texts):
     def _do():
+        processed_buffer = list()
+        
         with torch.no_grad():
             t = nomic_embedding_tokenizer(buffer_texts, padding=True, truncation=True, return_tensors="pt", max_length=NOMIC_EMBEDDING_MAX_WINDOW_SIZE).to(device)
 
@@ -59,16 +61,18 @@ def process_buffer(buffer_names, buffer_texts, sentence_embeddings):
                 tqdm.write(f"Out of memory error: " + str(t['input_ids'].shape))
                 raise oom
 
-            for n, e in zip(buffer_names, x):
-                sentence_embeddings[n].append(e.detach().cpu())
-    _do()
-
-    buffer_texts.clear()
-    buffer_names.clear()
+            for name, embedding in zip(buffer_names, x):
+                processed_buffer.append(name, embedding.detach().cpu())
+        
+        return processed_buffer
     
+    processed_buffer = _do()
+
     gc.collect()
 
     if do_cuda:
         torch.cuda.synchronize()
         torch.cuda.empty_cache()
         torch._C._cuda_clearCublasWorkspaces()
+
+    return processed_buffer
