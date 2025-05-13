@@ -1,4 +1,5 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple, Iterator, TypeVar
 from collections import defaultdict
 from glob import glob
@@ -6,12 +7,10 @@ from glob import glob
 import datetime as dt
 import os
 
-from sklearn.cluster import KMeans
 from tqdm import trange
 from tqdm.auto import tqdm
-import numpy as np
 
-from .embedding import NOMIC_EMBEDDING_MAX_WINDOW_SIZE, process_buffer
+from .embedding import NOMIC_EMBEDDING_MAX_WINDOW_SIZE, process_batch
 
 DEFAULT_CONFIG = config_parameters = {
     "window_size": NOMIC_EMBEDDING_MAX_WINDOW_SIZE,
@@ -20,6 +19,7 @@ DEFAULT_CONFIG = config_parameters = {
     "model_name":  "nomic-ai/nomic-embed-text:v1.5",
     "output_dir":  os.path.join("outputs", "some_run"),
     "datetime":    dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+
 }
 
 T = TypeVar('T')
@@ -36,18 +36,9 @@ def dataset_from_txt_dir(directory: os.PathLike = "", search=".txt", recursive=T
                 # tqdm.write(f"File {file} is empty?")
     return dict(data)
 
-def reverse_dataset(dataset: List[T]) -> List[T]:
-    return list(list(reversed(tokens)) for tokens in dataset)
-
-def windows(items: List[List[T]], window_size: int, stride: int) -> Iterator[T]:
-    for start in range(0, max(1, len(items) - window_size + 1), stride):
-        yield items[start : start + window_size]
-
-
 def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 7, stride: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 14, word_seps: set = {' ', '\n'}, max_pull: int = 14, max_push: int = 14) -> Iterator[List[T]]:
     n = len(items)
     nominal_start = 0
-
     while nominal_start < n:
         start = nominal_start
         pulled = 0
@@ -57,97 +48,98 @@ def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_
                 pulled += 1
             if items[start] in word_seps:
                 start += 1
-
         end = min(start + window_size, n)
         pushed = 0
         if end < n and items[end] not in word_seps:
             while end < n and items[end] not in word_seps and pushed < max_push:
                 end += 1
                 pushed += 1
-
         yield items[start:end]
-
         nominal_start += stride
 
-def bucket_items_by_length_kmeans(items_input: Dict[str, str], k_clusters: int = 10, random_state: int = 42) -> Dict[int, List[str]]:
-    """
-    Group item IDs by KMeans clusters over the lengths of their associated values.
+T_name = str
+T_doc  = str
 
-    Args:
-        items_input: Mapping from item IDs to their string values.
-        k_clusters: Desired number of clusters.
-        random_state: Seed for KMeans initialization.
-
-    Returns:
-        A dict mapping each cluster's maximum value length to the list of item IDs in that cluster.
-    """
-    # Filter out items with non-positive or too-long values
-    ids, values     = zip(*items_input.items())
-    lengths         = np.array([len(v) for v in values])
-    n, unique_count = len(lengths), len(np.unique(lengths))
-
-    n_clusters = max(min(k_clusters, n, unique_count), 1)
-    kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init='auto')
-    kmeans.fit(lengths.reshape(-1, 1))
-
-    cluster_to_ids  = defaultdict(list)
-    cluster_max_len = defaultdict(int)
-    for item_id, length, label in zip(ids, lengths, kmeans.labels_):
-        cluster_to_ids[label].append(item_id)
-        if length > cluster_max_len[label]:
-            cluster_max_len[label] = length
+@dataclass
+class WindowItem:
+    doc_name: T_name
+    part_idx: int
+    doc_ctnt: T_doc | 'torch.Tensor'
     
-    output: Dict[int, List[str]] = {}
-    for label, id_list in cluster_to_ids.items():
-        max_len = int(cluster_max_len[label])
-        output.setdefault(max_len, []).extend(id_list)
+    @property
+    def length(self) -> int:
+        return len(self.doc_ctnt)
 
-    return output
+@dataclass
+class BatchedWindowItems:
+    doc_name: List[T_name]
+    part_idx: List[int]
+    doc_ctnt: List[T_doc | 'torch.Tensor']
+    
+    def unbach(self) -> List[WindowItem]:
+        return [WindowItem(name, idx, content) for name, idx, content in zip(self.doc_name, self.part_idx, self.doc_ctnt)]
 
-def batch(iterable, n=1):
-    iterable = list(iterable)
-    l = len(iterable)
-    for ndx in trange(0, l, n, desc="batching", leave=False):
-        yield iterable[ndx:min(ndx + n, l)]
+class WindowDataset:
+    def __init__(self, documents: Dict[T_name, T_doc], window_size: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 7,
+                 stride: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 14, word_seps: set = {' ', '\n'},
+                 num_workers: int = os.cpu_count(), max_pull: int = 14, max_push: int = 14):
+        self.documents = documents
 
-def window(string: str, config_parameters: Dict[str, Any] = DEFAULT_CONFIG) -> Iterator[str]:
-    total = (len(string) + config_parameters["stride"] - 1) // config_parameters["stride"]
-    for window in tqdm(windows_anchor_words(string, window_size=config_parameters["window_size"], stride=config_parameters["stride"]), total=total, desc="Windowing", leave=False, unit=" windows"):
-        yield config_parameters["prefix"] + window
+        self.window_size = window_size
+        self.stride      = stride
+        self.word_seps   = word_seps
+        self.max_pull    = max_pull
+        self.max_push    = max_push
 
-def produce_clustered_batches(sentences: dict[str, str], MAX_BATCH = 200, max_acceptable_length = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 3):
-    buffer_texts: list[str] = []
-    buffer_names: list[str] = []
+        self._windows: List[WindowItem] = []
+        self._batches: List[BatchedWindowItems] = []
+        
+        self.pool = ProcessPoolExecutor(num_workers)
 
-    batches: list[tuple[list[str], list[str]]] = []
+    def window(self):
+        "process parallelly iterates over documents, and populates self.windows with WindowItems"
+        wrapper: callable[[str], List[str]] = (lambda x: list(windows_anchor_words(x, self.window_size, self.stride, self.word_seps, self.max_pull, self.max_push)))
 
-    clustered_sentences = bucket_items_by_length_kmeans(sentences, 30, 2)
+        futures: Dict[str, List[str]] = dict()
 
-    total_pbar = tqdm(enumerate(clustered_sentences.items()), total=len(clustered_sentences), desc="encoding sentences by clusters, loading buffer.")
+        for doc_name, doc_content in self.documents.items():
+            futures[doc_name] = self.pool.submit(wrapper, doc_content)
 
-    for i, (cluster, names) in total_pbar:
-        total_pbar.set_postfix_str(f"ID {i} LEN({len(names)}) MAX({cluster})")
-        for name in tqdm(names, desc="encoding sentences", leave=False, unit="sentences"):
-            for sent in window(string=sentences[name]):
-                buffer_texts.append(sent)
-                buffer_names.append(name)
+        self._windows.clear()
+        for k_doc_name, v_future in as_completed(futures.items()):
+            for i_part_idx, r_doc_ctnt in enumerate(v_future.result()):
+                self._windows.append(WindowItem(k_doc_name, i_part_idx, r_doc_ctnt))
+        
+        self._windows.sort(key=(lambda window: window.length), reverse=True)
+        
+    def batch(self, max_batch = 200) -> List[List[WindowItem]]:
+        current_batch: List[     WindowItem ] = []
+        
+        # area size_of(LLM(side(batch_size) by side(padded_max_lenght))) that roughtly fits into gpu memory
+        # since one side of this rectangle formula moves with the dinamic window size, the other needs to
+        # move in correspondence to keep area/ram roughlt constant and not underfeed the gpu nor blow it up
+        max_batch_token_area = self.window_size * max_batch
+        max_lenght           = 1
 
-                if (len(buffer_texts) >= MAX_BATCH) or (cluster * len(buffer_texts) > (max_acceptable_length * MAX_BATCH)):
-                    batches.append((buffer_names, buffer_texts))
-                    buffer_texts = []
-                    buffer_names = []
+        self._batches.clear()
+        for window in self._windows:
+            current_batch.append(window)
+            max_lenght = max(max_lenght, window.length)
 
-    if buffer_texts:
-        batches.append((buffer_names, buffer_texts))
+            if (len(current_batch) == max_batch) or (max_lenght * len(current_batch) > max_batch_token_area):
+                self._batches.append(current_batch)
+                current_batch = [ ]
+                max_lenght    =  1
+        
+    def embed_batches(self):
+        for batch in tqdm(self._batches, desc="embedding sentences", unit="batches", leave=True):
+            for embedded_content in process_batch(batch.doc_ctnt):
+                # note, this tensor is transposed for zip unbatch
+                batch.doc_ctnt = embedded_content
 
-    return batches
-
-def parallel_batched_consumer(batches: List[Tuple[List[str], List[str]]], max_workers: int = os.cpu_count()):
-    sentence_embeddings: defaultdict[str, List[str]] = defaultdict(list)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        wrapped = lambda args: process_buffer(args[0], args[1])
-        jobs    = executor.map(wrapped, batches)
-        for batch in tqdm(jobs, total=len(batches), desc="encoding sentences", unit="batches", leave=True):
-            for name, embedding in batch:
-                sentence_embeddings[name].append(embedding)
-    return dict(sentence_embeddings)
+def batch_window_list(batch: List[WindowItem]) -> BatchedWindowItems:
+    return BatchedWindowItems(
+        doc_name=[window.doc_name for window in batch],
+        part_idx=[window.part_idx for window in batch],
+        doc_ctnt=[window.doc_ctnt for window in batch],
+    )
