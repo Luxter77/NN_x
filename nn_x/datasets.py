@@ -36,7 +36,8 @@ def dataset_from_txt_dir(directory: os.PathLike = "", search=".txt", recursive=T
                 # tqdm.write(f"File {file} is empty?")
     return dict(data)
 
-def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 7, stride: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 14, word_seps: set = {' ', '\n'}, max_pull: int = 14, max_push: int = 14) -> Iterator[List[T]]:
+def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 7, stride: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 14, word_seps: set = {' ', '\n'}, max_pull: int = 14, max_push: int = 14) -> List[List[T]]:
+    o: List[List[T]] = []
     n = len(items)
     nominal_start = 0
     while nominal_start < n:
@@ -54,8 +55,9 @@ def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_
             while end < n and items[end] not in word_seps and pushed < max_push:
                 end += 1
                 pushed += 1
-        yield items[start:end]
+        o.append(items[start:end])
         nominal_start += stride
+    return o
 
 T_name = str
 T_doc  = Union[str, 'torch.Tensor']
