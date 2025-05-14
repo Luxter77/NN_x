@@ -143,8 +143,23 @@ class WindowDataset:
         
     def embed(self):
         for batch in tqdm(self._batches, desc="embedding sentences", unit="batches", leave=True):
-            for embedded_content in process_batch(batch.doc_ctnt):
-                batch.doc_ctnt = embedded_content
+            batch.doc_ctnt = process_batch(batch.doc_ctnt)
+
+    def __iter__(self):
+        if self._batches:
+            yield from self._batches
+        elif self._windows:
+            yield from self._windows
+        else:
+            yield from self.documents.items()
+
+    def __len__(self):
+        if self._batches:
+            return len(self._batches)
+        elif self._windows:
+            return len(self._windows)
+        else:
+            return len(self.documents)
 
 def batch_window_list(batch: List[WindowItem]) -> BatchedWindowItems:
     return BatchedWindowItems(
@@ -152,3 +167,6 @@ def batch_window_list(batch: List[WindowItem]) -> BatchedWindowItems:
         part_idx=[window.part_idx for window in batch],
         doc_ctnt=[window.doc_ctnt for window in batch],
     )
+
+def flatten_batch_list(batches: List[BatchedWindowItems]) -> List[WindowItem]:
+    return [item for batch in batches for item in batch.unbach()]

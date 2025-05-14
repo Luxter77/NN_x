@@ -46,7 +46,7 @@ def estimate_token_count_from_chars(chars: int) -> int:
     "Estimate the number of tokens in a given number of characters."
     return int(chars * NOMIC_CHAR_TO_TOKEN_RATIO)
 
-def process_batch(batched_text: List[str]):
+def process_batch(batched_text: List[str]) -> torch.Tensor:
     with torch.no_grad():
         t = nomic_embedding_tokenizer(batched_text, padding=True, truncation=True, return_tensors="pt", max_length=NOMIC_EMBEDDING_MAX_WINDOW_SIZE).to(device)
         try:
