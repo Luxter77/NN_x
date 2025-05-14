@@ -60,7 +60,7 @@ def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_
     return o
 
 T_name = str
-T_doc  = Union[str, 'torch.Tensor']
+T_doc  = Union[str, 'torch.Tensor'] # type: ignore
 
 @dataclass
 class WindowItem:
