@@ -23,8 +23,10 @@ DEFAULT_CONFIG = config_parameters = {
 }
 
 T = TypeVar('T')
+T_name = str
+T_doc  = Union[str, 'torch.Tensor'] # type: ignore
 
-def dataset_from_txt_dir(directory: os.PathLike = "", search=".txt", recursive=True) -> List[str]:
+def dataset_from_txt_dir(directory: os.PathLike = "", search=".txt", recursive=True) -> Dict[T_name, T_doc]:
     data = defaultdict(list)
     for file in tqdm(list(glob(os.path.join(directory, "**", f"*{search}"), recursive=recursive)), desc="Loading files"):
         with open(file, "r", encoding="utf-8") as f:
@@ -58,9 +60,6 @@ def windows_anchor_words(items: List[T], window_size: int = NOMIC_EMBEDDING_MAX_
         o.append(items[start:end])
         nominal_start += stride
     return o
-
-T_name = str
-T_doc  = Union[str, 'torch.Tensor'] # type: ignore
 
 @dataclass
 class WindowItem:
