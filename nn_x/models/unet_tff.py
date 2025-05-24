@@ -72,6 +72,9 @@ class UNetTFF(nn.Module):
             self.decoder.append(MoEFF(in_features, out_features, self.num_ff, self.num_experts))
             #self.decoder.append(nn.Linear(in_features, out_features))
 
+        self.bos = nn.Parameter(torch.randn(1, self.num_features))
+        self.eos = nn.Parameter(torch.randn(1, self.num_features))
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         skip_connections = []
 
