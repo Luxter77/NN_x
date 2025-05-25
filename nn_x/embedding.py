@@ -24,8 +24,8 @@ if do_cuda:
 #else:
 #    print("Using CPU")
 
-nomic_embedding_tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased', trust_remote_code=True, max_length=NOMIC_EMBEDDING_MAX_WINDOW_SIZE)
-nomic_embedding_model     = AutoModel.from_pretrained('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True, rotary_scaling_factor=2).to(device)
+nomic_embedding_tokenizer = AutoTokenizer.from_pretrained('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True, max_length=NOMIC_EMBEDDING_MAX_WINDOW_SIZE)
+nomic_embedding_model     = AutoModel    .from_pretrained('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True, rotary_scaling_factor=2).to(device)
 nomic_embedding_model.eval()
 
 nomic_embedding_model.requires_grad_(False)
