@@ -1,5 +1,5 @@
 import math
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 import torch.nn as nn
@@ -171,12 +171,12 @@ class MoE(nn.Module):
         n_shared_experts (int): Scales the hidden dimension of the *single* shared
                                 expert MLP block. If > 1, it creates one larger
                                 shared MLP, not multiple separate ones. Defaults to 2.
-        mlp (str): Type of MLP block to use (currently hardcoded to use SwiGLU
-                   via `mlp_block`). Defaults to "swiglu".
+        expert (str): Type of expert block to use (currently hardcoded to use SwiGLU
+                   via `expert_block`). Defaults to "swiglu".
     """
     def __init__(self, dim: int, routed_scaling_factor: int, topk_method: str, n_group: int, topk_group: int,
                  hidden_dim: Optional[int] = None, n_routed_experts: int = 12, num_experts_per_tok: int = 4,
-                 n_shared_experts: int = 2, mlp: str = "swiglu"
+                 n_shared_experts: int = 2, expert: Union[str, nn.Module] = "swiglu"
     ):
         super().__init__()
 
@@ -190,10 +190,14 @@ class MoE(nn.Module):
 
         # --- Determine MLP Block Type ---
         # TODO: Add the rest :3c
-        if mlp == "swiglu":
-            mlp_block = SwiGLU
+        if isinstance(expert, nn.Module):
+            expert_block = expert
+        elif expert == "swiglu":
+            expert_block = SwiGLU
+        elif expert == "linear":
+            expert_block = nn.Linear
         else:
-            raise ValueError(f"Unsupported MLP type: {mlp}. Currently only 'swiglu' is supported.")
+            raise ValueError(f"Unsupported MLP type: {expert}. Currently only 'swiglu' is supported.")
 
         # --- Calculate Hidden Dimension ---
         # Use provided hidden_dim or calculate a default
@@ -207,7 +211,7 @@ class MoE(nn.Module):
 
         # --- Module Instantiation ---
         # Create the bank of 'routed' experts
-        self.experts = nn.ModuleList([mlp_block(dim, hidden_dim) for _ in range(n_routed_experts)])
+        self.experts = nn.ModuleList([expert_block(dim, hidden_dim) for _ in range(n_routed_experts)])
 
         # Create the gating mechanism
         self.gate = MoEGate(
@@ -226,7 +230,7 @@ class MoE(nn.Module):
         # If n_shared_experts > 0, create the shared block.
         if self.n_shared_experts > 0:
             shared_hidden_dim = hidden_dim * self.n_shared_experts
-            self.shared_experts = mlp_block(dim, shared_hidden_dim)
+            self.shared_experts = expert_block(dim, shared_hidden_dim)
             # print(f"Initialized shared expert with dim={dim}, hidden_dim={shared_hidden_dim}") # Debug print
         else:
             self.shared_experts = None
