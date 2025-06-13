@@ -92,7 +92,7 @@ class UNetTFF(nn.Module):
 
         self.decoder = nn.ModuleList()
         for in_features, out_features in pairwise(decoder_dimentions):
-            self.decoder.append(tff_block_type(in_features, out_features, self.num_ff, self.num_experts))
+            self.decoder.append(tff_block_type(in_features, out_features / 2, self.num_ff, self.num_experts))
         
         # Add the final layer to match the original number of features
         self.decoder.append(nn.Linear(decoder_dimentions[-1], self.num_features))
