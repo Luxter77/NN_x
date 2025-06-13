@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 def vocab_aware_embedding_loss(predicted_embedding: torch.Tensor, true_token_indexes: torch.Tensor, embedding_layer: nn.Embedding, vocab_penalty_weight: float = 1.0, distance_function: str = "cosine") -> torch.Tensor:
     """
@@ -34,39 +35,12 @@ def vocab_aware_embedding_loss(predicted_embedding: torch.Tensor, true_token_ind
     return loss
 
 def decorrelation_loss(z: torch.Tensor) -> torch.Tensor:
-    """
-    Computes the decorrelation loss for a batch of vectors.
+    if z.shape[0] <= 1: return torch.tensor(0.0, device=z.device)
+    return torch.sum((torch.nan_to_num(torch.corrcoef(z.T), nan=0.0) * (1 - torch.eye(z.shape[1], device=z.device))) ** 2)
 
-    This loss penalizes the linear correlation between the different dimensions of the vectors. It does so by calculating the covariance matrix of
-    the batch and summing the squares of the off-diagonal elements. A lower loss means the dimensions are less correlated.
-
-    Args:
-        z (torch.Tensor): The batch of vectors from the encoder of shape: (batch_size, d_model).
-
-    Returns:
-        torch.Tensor: A scalar tensor representing the decorrelation loss.
-    """
-    # The covariance matrix is not defined for a batch size of 1.
-    if z.shape[0] <= 1:
-        return torch.tensor(0.0, device=z.device)
-
-    # 1. Center the data
-    # Subtract the mean of each dimension
-    z_centered = z - z.mean(dim=0)
-
-    # 2. Compute the covariance matrix
-    # The formula is (Z^T * Z) / (n - 1)
-    cov_matrix = (z_centered.T @ z_centered) / (z.shape[0] - 1)
-
-    # 3. Calculate the loss
-    # We want to push the off-diagonal elements to zero.
-    # We take the squared Frobenius norm of the off-diagonal elements.
-    identity_mask = torch.eye(z.shape[1], device=z.device)
-    
-    # Zero out the diagonal elements to only consider off-diagonal correlations
-    off_diagonal_cov = cov_matrix * (1 - identity_mask)
-    
-    # The loss is the sum of the squares of these off-diagonal elements
-    loss = torch.sum(off_diagonal_cov**2)
-
-    return loss
+def deco_vae_loss(recon_x: torch.Tensor, x: torch.Tensor, h: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor,
+                  alpha: float = 100.0, beta: float = 1e-2, gamma: float = 1e-3) -> torch.Tensor:
+    recon_loss  = alpha * (F.mse_loss(recon_x, x, reduction='mean'))
+    kld         = beta  * (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()))
+    correlation = gamma * decorrelation_loss(h) / h.shape[0]
+    return recon_loss, kld, correlation

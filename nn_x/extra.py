@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict
 
 import torch
 import torch.nn as nn
@@ -19,6 +19,14 @@ def mean_pooling(model_output: torch.Tensor, attention_mask: torch.Tensor):
     token_embeddings = model_output[0]
     input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
     return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
+def nan_check(tensors: Dict[str, torch.Tensor]):
+    for name, tensor in list(tensors.items()):
+        tensors[name] = torch.isnan(tensor).any()
+    if any(tensors.values()):
+        print("NaN values found in the following tensors:")
+        for name, has_nan in tensors.items():
+            if has_nan: print(f"  - {name}")
 
 class SwiGLU(nn.Module):
     """
@@ -46,6 +54,13 @@ class SwiGLU(nn.Module):
         self.bias = bias
 
         self.linear = nn.Linear(dim, 2 * dim, bias=bias)
+
+        # Apply Xavier initialization to the weights
+        nn.init.xavier_uniform_(self.linear.weight)
+
+        # (Optional) Initialize biases to zero or leave them as-is
+        if self.linear.bias is not None:
+            nn.init.zeros_(self.linear.bias)
 
         # Swish activation function (x * sigmoid(x))
         self.swish = nn.SiLU()
