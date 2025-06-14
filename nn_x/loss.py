@@ -41,21 +41,21 @@ def decorrelation_loss(z: torch.Tensor) -> torch.Tensor:
     return torch.sum((torch.nan_to_num(torch.corrcoef(z.T), nan=0.0) * (1 - torch.eye(z.shape[1], device=z.device))) ** 2)
 
 def deco_vae_cosine_loss(recon_x: torch.Tensor, x: torch.Tensor, h: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor,
-                         alpha: float = 100.0, beta: float = 1e-2, gamma: float = 1e-3) -> torch.Tensor:
+                         alpha: float = 1, beta: float = 1e-2, gamma: float = 5e-2) -> torch.Tensor:
     recon_loss  = alpha * (1 - F.cosine_similarity(recon_x, x, dim=1)).mean()
     kld         = beta  * (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()))
     correlation = gamma * decorrelation_loss(h) / h.shape[0]
     return recon_loss, kld, correlation
 
 def deco_vae_mse_loss(recon_x: torch.Tensor, x: torch.Tensor, h: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor,
-                      alpha: float = 100.0, beta: float = 1e-2, gamma: float = 1e-3) -> torch.Tensor:
+                      alpha: float = 100, beta: float = 1e-2, gamma: float = 5e-2) -> torch.Tensor:
     recon_loss  = alpha * (F.mse_loss(recon_x, x, reduction='mean'))
     kld         = beta  * (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()))
     correlation = gamma * decorrelation_loss(h) / h.shape[0]
     return recon_loss, kld, correlation
 
 def deco_vae_bce_loss(recon_x: torch.Tensor, x: torch.Tensor, h: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor,
-                      alpha: float = 100.0, beta: float = 1e-2, gamma: float = 1e-3) -> torch.Tensor:
+                      alpha: float = 100, beta: float = 1e-2, gamma: float = 5e-2) -> torch.Tensor:
     recon_loss  = alpha * F.binary_cross_entropy_with_logits(recon_x, x, reduction='mean')
     kld         = beta  * (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()))
     correlation = gamma * decorrelation_loss(h) / h.shape[0]
