@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -43,6 +45,17 @@ class SDVAEBottleneck(nn.Module):
         self.fc_mu     = nn.Linear(self.latent_shape, self.latent_shape)
         self.fc_logvar = nn.Linear(self.latent_shape, self.latent_shape)
 
+        self._init_weights()
+
+    def _init_weights(self):
+        # Small positive bias for mu to break symmetry
+        nn.init.normal_(self.fc_mu.weight, 0, 0.01)
+        nn.init.constant_(self.fc_mu.bias, 0.1)
+        
+        # Log-variance bias around -1 (variance ~ 0.37)
+        nn.init.normal_(self.fc_logvar.weight, 0, 0.01)
+        nn.init.constant_(self.fc_logvar.bias, -1.0)
+
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # Expected x.shape = (batch, latent_shape)
         mu     = self.fc_mu(x)
@@ -82,10 +95,27 @@ class SkipDepthVAE(nn.Module):
         self.latent_shape  = latent_shape
         self.network_depth = network_depth
         self.dropout       = dropout
-        
+
+        _depth_diff = int(math.log(network_depth))
+
         self.encoder    = SDVAEEncoder(features, latent_shape, network_depth, dropout)
         self.bottleneck = SDVAEBottleneck(latent_shape)
-        self.decoder    = SDVAEDecoder(latent_shape, features, network_depth, dropout)
+        self.decoder    = SDVAEDecoder(latent_shape, features, network_depth - _depth_diff, dropout)
+
+    def _init_network_weights(self):
+        encoder_gain = 0.7 / math.sqrt(self.encoder.network_depth)
+        ecoder_gain  = 0.9 / math.sqrt(self.decoder.network_depth)
+        
+        for module in self.encoder.ff_stack.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_normal_(module.weight, gain=encoder_gain)
+                if module.bias is not None:
+                    nn.init.uniform_(module.bias, -0.01, 0.01)
+
+        for module in self.decoder.ff_stack.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_normal_(module.weight, gain=ecoder_gain)
+                if module.bias is not None: nn.init.constant_(module.bias, 0)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # Expected x.shape = (batch, features)
