@@ -104,7 +104,7 @@ class SkipDepthVAE(nn.Module):
 
     def _init_network_weights(self):
         encoder_gain = 0.7 / math.sqrt(self.encoder.network_depth)
-        ecoder_gain  = 0.9 / math.sqrt(self.decoder.network_depth)
+        decoder_gain  = 0.9 / math.sqrt(self.decoder.network_depth)
         
         for module in self.encoder.ff_stack.modules():
             if isinstance(module, nn.Linear):
@@ -114,7 +114,7 @@ class SkipDepthVAE(nn.Module):
 
         for module in self.decoder.ff_stack.modules():
             if isinstance(module, nn.Linear):
-                nn.init.xavier_normal_(module.weight, gain=ecoder_gain)
+                nn.init.xavier_normal_(module.weight, gain=decoder_gain)
                 if module.bias is not None: nn.init.constant_(module.bias, 0)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
