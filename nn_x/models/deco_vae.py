@@ -102,6 +102,8 @@ class SkipDepthVAE(nn.Module):
         self.bottleneck = SDVAEBottleneck(latent_shape)
         self.decoder    = SDVAEDecoder(latent_shape, features, network_depth - _depth_diff, dropout)
 
+        self._init_network_weights()
+
     def _init_network_weights(self):
         encoder_gain = 0.7 / math.sqrt(self.encoder.network_depth)
         decoder_gain  = 0.9 / math.sqrt(self.decoder.network_depth)
