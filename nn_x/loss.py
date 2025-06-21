@@ -1,19 +1,21 @@
+from typing import Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor, tensor
 
-def vocab_aware_embedding_loss(predicted_embedding: torch.Tensor, true_token_indexes: torch.Tensor,
+def vocab_aware_embedding_loss(predicted_embedding: Tensor, true_token_indexes: Tensor,
                                embedding_layer: nn.Embedding, vocab_penalty_weight: float = 1.0,
-                               distance_function: str = "cosine") -> torch.Tensor:
+                               distance_function: str = "cosine") -> Tensor:
     """
     Calculates a loss that penalizes predictions far from the true token
     and far from the vocabulary embedding space.
     Args:
-        - predicted_embedding (torch.Tensor): Predicted embedding (batch_size, embedding_dim).
-        - true_token_indexes (torch.Tensor): Index of the true token (batch_size,).
+        - predicted_embedding (Tensor): Predicted embedding (batch_size, embedding_dim).
+        - true_token_indexes (Tensor): Index of the true token (batch_size,).
         - embedding_layer (torch.nn.Embedding): The embedding layer itself.
         - vocab_penalty_weight (float): Weight for the vocabulary penalty term.
-    Returns: torch.Tensor: The calculated loss (scalar).
+    Returns: Tensor: The calculated loss (scalar).
     """
     true_embedding = embedding_layer(true_token_indexes).detach() # (batch_size, embedding_dim)
 
@@ -36,27 +38,54 @@ def vocab_aware_embedding_loss(predicted_embedding: torch.Tensor, true_token_ind
     loss = distance_to_true + vocab_penalty_weight * vocab_penalty
     return loss
 
-def decorrelation_loss(z: torch.Tensor) -> torch.Tensor:
-    if z.shape[0] <= 1: return torch.tensor(0.0, device=z.device)
-    return torch.sum((torch.nan_to_num(torch.corrcoef(z.T), nan=0.0) * (1 - torch.eye(z.shape[1], device=z.device))) ** 2)
+def decorrelation_loss(z: Tensor) -> Tensor:
+    b, d = z.shape
+    if b <= 1: return tensor(0.0, device=z.device)
+    scale = (d + 1 / d) # I know its - 1 but the difference is minimal and i dont like it when / 0
+    corref = z.T.corrcoef().nan_to_num()
+    mask   = ~torch.eye(d, device=z.device).bool()
+    loss   = corref[mask].pow(2).sum()
+    return scale * loss
 
-def deco_vae_cosine_loss(recon_x: torch.Tensor, x: torch.Tensor, h: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor,
-                         alpha: float = 1, beta: float = 1e-2, gamma: float = 5e-2) -> torch.Tensor:
+def sampled_decorrelation_loss(z: Tensor, k: int = 36) -> Tensor:
+    b, d = z.shape
+    if b <= 1: return tensor(0.0, device=z.device)
+    if d <= k: return decorrelation_loss(z)
+
+    m = int(d)
+    scale = ( (m + 1) * m ) / ( (k + 1) * k ) # Same as deco loss normal
+    perm = torch.randperm(m, device=z.device)
+
+    correfs = []
+    for ws in range(0, m, k):
+        corref = z[:, perm[ws:ws+k]].T.corrcoef().nan_to_num()
+        mask   = ~torch.eye(corref.shape[1], device=z.device).bool()
+        correfs.append(corref[mask].pow(2).sum())
+
+    loss = torch.stack(correfs).mean()
+    return scale * loss
+
+def deco_vae_cosine_loss(recon_x: Tensor, x: Tensor, h: Tensor, mu: Tensor, logvar: Tensor,
+                         alpha: float = 1, beta: float = 1e-2, gamma: float = 5e-2, decorrelation_k: int = None) -> Tuple[Tensor, Tensor, Tensor]:
     recon_loss  = alpha * (1 - F.cosine_similarity(recon_x, x, dim=1)).mean()
-    kld         = beta  * (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()))
-    correlation = gamma * decorrelation_loss(h) / h.shape[0]
+    kld         = beta  * (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum())
+    correlation = gamma
+    
+    if decorrelation_k: correlation *= sampled_decorrelation_loss(h, decorrelation_k)
+    else:               correlation *= decorrelation_loss(h)
+    
     return recon_loss, kld, correlation
 
-def deco_vae_mse_loss(recon_x: torch.Tensor, x: torch.Tensor, h: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor,
-                      alpha: float = 100, beta: float = 1e-2, gamma: float = 5e-2) -> torch.Tensor:
+def deco_vae_mse_loss(recon_x: Tensor, x: Tensor, h: Tensor, mu: Tensor, logvar: Tensor,
+                      alpha: float = 100, beta: float = 1e-2, gamma: float = 5e-2) -> Tuple[Tensor, Tensor, Tensor]:
     recon_loss  = alpha * (F.mse_loss(recon_x, x, reduction='mean'))
-    kld         = beta  * (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()))
-    correlation = gamma * decorrelation_loss(h) / h.shape[0]
+    kld         = beta  * (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum())
+    correlation = gamma * decorrelation_loss(h)
     return recon_loss, kld, correlation
 
-def deco_vae_bce_loss(recon_x: torch.Tensor, x: torch.Tensor, h: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor,
-                      alpha: float = 100, beta: float = 1e-2, gamma: float = 5e-2) -> torch.Tensor:
+def deco_vae_bce_loss(recon_x: Tensor, x: Tensor, h: Tensor, mu: Tensor, logvar: Tensor,
+                      alpha: float = 100, beta: float = 1e-2, gamma: float = 5e-2) -> Tuple[Tensor, Tensor, Tensor]:
     recon_loss  = alpha * F.binary_cross_entropy_with_logits(recon_x, x, reduction='mean')
-    kld         = beta  * (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()))
-    correlation = gamma * decorrelation_loss(h) / h.shape[0]
+    kld         = beta  * (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum())
+    correlation = gamma * decorrelation_loss(h)
     return recon_loss, kld, correlation
