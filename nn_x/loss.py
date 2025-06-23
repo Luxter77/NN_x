@@ -44,7 +44,7 @@ def decorrelation_loss(z: Tensor) -> Tensor:
     scale = (d + 1 / d) # I know its - 1 but the difference is minimal and i dont like it when / 0
     corref = z.T.corrcoef().nan_to_num()
     mask   = ~torch.eye(d, device=z.device).bool()
-    loss   = corref[mask].pow(2).sum()
+    loss   = corref[mask].pow(2).mean()
     return scale * loss
 
 def sampled_decorrelation_loss(z: Tensor, k: int = 36, p: float = 1.5) -> Tensor:
@@ -53,7 +53,6 @@ def sampled_decorrelation_loss(z: Tensor, k: int = 36, p: float = 1.5) -> Tensor
     if d <= k: return decorrelation_loss(z)
 
     m = int(d)
-    scale = ( (m + 1) * m ) / ( (k + 1) * k ) # Same as deco loss normal
 
     perm = torch.randperm(m, device=z.device)
 
@@ -65,15 +64,15 @@ def sampled_decorrelation_loss(z: Tensor, k: int = 36, p: float = 1.5) -> Tensor
     for ws in range(0, m, k):
         corref = z[:, perm[ws:ws+k]].T.corrcoef().nan_to_num()
         mask   = ~torch.eye(corref.shape[1], device=z.device).bool()
-        correfs.append(corref[mask].pow(2).sum())
+        correfs.append(corref[mask])
 
-    loss = torch.stack(correfs).mean()
-    return scale * loss
+    loss = torch.cat(correfs).pow(2).mean()
+    return loss
 
 def deco_vae_cosine_loss(recon_x: Tensor, x: Tensor, h: Tensor, mu: Tensor, logvar: Tensor,
                          alpha: float = 1, beta: float = 1e-2, gamma: float = 5e-2, decorrelation_k: int = None) -> Tuple[Tensor, Tensor, Tensor]:
     recon_loss  = alpha * (1 - F.cosine_similarity(recon_x, x, dim=1)).mean()
-    kld         = beta  * (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum())
+    kld         = beta  * (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).mean())
     correlation = gamma
     
     if decorrelation_k: correlation *= sampled_decorrelation_loss(h, decorrelation_k)
@@ -84,13 +83,13 @@ def deco_vae_cosine_loss(recon_x: Tensor, x: Tensor, h: Tensor, mu: Tensor, logv
 def deco_vae_mse_loss(recon_x: Tensor, x: Tensor, h: Tensor, mu: Tensor, logvar: Tensor,
                       alpha: float = 100, beta: float = 1e-2, gamma: float = 5e-2) -> Tuple[Tensor, Tensor, Tensor]:
     recon_loss  = alpha * (F.mse_loss(recon_x, x, reduction='mean'))
-    kld         = beta  * (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum())
+    kld         = beta  * (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).mean())
     correlation = gamma * decorrelation_loss(h)
     return recon_loss, kld, correlation
 
 def deco_vae_bce_loss(recon_x: Tensor, x: Tensor, h: Tensor, mu: Tensor, logvar: Tensor,
                       alpha: float = 100, beta: float = 1e-2, gamma: float = 5e-2) -> Tuple[Tensor, Tensor, Tensor]:
     recon_loss  = alpha * F.binary_cross_entropy_with_logits(recon_x, x, reduction='mean')
-    kld         = beta  * (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum())
+    kld         = beta  * (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).mean())
     correlation = gamma * decorrelation_loss(h)
     return recon_loss, kld, correlation
