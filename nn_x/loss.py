@@ -64,9 +64,9 @@ def sampled_decorrelation_loss(z: Tensor, k: int = 36, p: float = 1.5) -> Tensor
     for ws in range(0, m, k):
         corref = z[:, perm[ws:ws+k]].T.corrcoef().nan_to_num()
         mask   = ~torch.eye(corref.shape[1], device=z.device).bool()
-        correfs.append(corref[mask])
+        correfs.append(corref[mask].pow(2).mean())
 
-    loss = torch.cat(correfs).pow(2).mean()
+    loss = torch.cat(correfs).mean()
     return loss
 
 def deco_vae_cosine_loss(recon_x: Tensor, x: Tensor, h: Tensor, mu: Tensor, logvar: Tensor,
@@ -93,3 +93,8 @@ def deco_vae_bce_loss(recon_x: Tensor, x: Tensor, h: Tensor, mu: Tensor, logvar:
     kld         = beta  * (-0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).mean())
     correlation = gamma * decorrelation_loss(h)
     return recon_loss, kld, correlation
+
+
+def spectral_regularization_loss(module: nn.Module) -> Tensor:
+    ...
+    return tensor(0.0)
