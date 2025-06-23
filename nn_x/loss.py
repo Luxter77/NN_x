@@ -65,7 +65,7 @@ def sampled_decorrelation_loss(z: Tensor, k: int = 36, p: float = 1.5) -> Tensor
         mask   = ~torch.eye(corref.shape[1], device=z.device).bool()
         correfs.append(corref[mask].pow(2).mean())
 
-    loss = torch.cat(correfs).mean()
+    loss = torch.stack(correfs).mean()
     return loss
 
 def deco_vae_cosine_loss(recon_x: Tensor, x: Tensor, h: Tensor, mu: Tensor, logvar: Tensor,
