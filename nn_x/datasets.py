@@ -67,8 +67,7 @@ class WindowItem:
     part_idx: int
     doc_ctnt: T_doc
     
-    @property
-    def length(self) -> int:
+    def __len__(self) -> int:
         return len(self.doc_ctnt)
 
 @dataclass
@@ -79,6 +78,9 @@ class BatchedWindowItems:
     
     def unbach(self) -> List[WindowItem]:
         return [WindowItem(name, idx, content) for name, idx, content in zip(self.doc_name, self.part_idx, self.doc_ctnt)]
+
+    def __len__(self) -> int:
+        return len(self.doc_ctnt)
 
 class WindowDataset:
     def __init__(self, documents: Dict[T_name, T_doc], window_size: int = NOMIC_EMBEDDING_MAX_WINDOW_SIZE // 7,
