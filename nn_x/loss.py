@@ -41,11 +41,10 @@ def vocab_aware_embedding_loss(predicted_embedding: Tensor, true_token_indexes: 
 def decorrelation_loss(z: Tensor) -> Tensor:
     b, d = z.shape
     if b <= 1: return tensor(0.0, device=z.device)
-    scale = (d + 1 / d) # I know its - 1 but the difference is minimal and i dont like it when / 0
     corref = z.T.corrcoef().nan_to_num()
     mask   = ~torch.eye(d, device=z.device).bool()
     loss   = corref[mask].pow(2).mean()
-    return scale * loss
+    return loss
 
 def sampled_decorrelation_loss(z: Tensor, k: int = 36, p: float = 1.5) -> Tensor:
     b, d = z.shape
