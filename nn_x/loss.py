@@ -47,14 +47,19 @@ def decorrelation_loss(z: Tensor) -> Tensor:
     loss   = corref[mask].pow(2).sum()
     return scale * loss
 
-def sampled_decorrelation_loss(z: Tensor, k: int = 36) -> Tensor:
+def sampled_decorrelation_loss(z: Tensor, k: int = 36, p: float = 1.5) -> Tensor:
     b, d = z.shape
     if b <= 1: return tensor(0.0, device=z.device)
     if d <= k: return decorrelation_loss(z)
 
     m = int(d)
     scale = ( (m + 1) * m ) / ( (k + 1) * k ) # Same as deco loss normal
+
     perm = torch.randperm(m, device=z.device)
+
+    if perm.shape[0] % k != 0:
+        missing = (k - perm.shape[0] % k) % k
+        perm = torch.cat([perm, torch.randperm(m, device=z.device)[:missing]])
 
     correfs = []
     for ws in range(0, m, k):
