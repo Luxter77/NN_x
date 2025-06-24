@@ -46,7 +46,7 @@ def decorrelation_loss(z: Tensor) -> Tensor:
     loss   = corref[mask].pow(2).mean()
     return loss
 
-def sampled_decorrelation_loss(z: Tensor, k: int = 36, p: float = 1.5) -> Tensor:
+def sampled_decorrelation_loss(z: Tensor, k: int = 36) -> Tensor:
     b, d = z.shape
     if b <= 1: return tensor(0.0, device=z.device)
     if d <= k: return decorrelation_loss(z)
